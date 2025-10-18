@@ -11,11 +11,17 @@
 
 loglikcs <- function(pars, dataset, Des, model){
 
+  cols_with_c <- grep("^C\\d+$", names(dataset), value = TRUE)
+  df_C <- dataset[ , cols_with_c]
+
+  cols_with_X <- grep("^X\\d+$", names(dataset), value = TRUE)
+  df_X <- dataset[, cols_with_X]
+  datset <- list("Cs" = df_C, "Xs" = df_X)
   theta <- exp(pars[length(pars)])
   b <- c(0,pars[1:(length(pars) - 1)])
 
-  Cs <- dataset[[1]]
-  Xs <- dataset[[2]]
+  Cs <- datset[[1]]
+  Xs <- datset[[2]]
 
   if(is.null(dim(Xs))) {Xs <- as.matrix(Xs,ncol=1)}
 
@@ -49,7 +55,7 @@ loglikcs <- function(pars, dataset, Des, model){
     D <- as.matrix(Des[[2]])
   }
 
-  Des <- list("Y.form" = Y.form, "D" = D)
+  Des.m <- list("Y.form" = Y.form, "D" = D)
 
   L <- NULL
   G <- matrix(NA,nrow = 2,ncol = Q)
@@ -57,8 +63,8 @@ loglikcs <- function(pars, dataset, Des, model){
   if(model == "DMM"){
 
     for (i in 1:N){
-      G[1,] <- FixEf(Xs[i,], Q, lvl.cov, b, Des)
-      G[2,] <- FixEf(Xs[(N+i),], Q, lvl.cov, b, Des)
+      G[1,] <- FixEf(Xs[i,], Q, lvl.cov, b, Des.m)
+      G[2,] <- FixEf(Xs[(N+i),], Q, lvl.cov, b, Des.m)
       eta <- exp(G)
       Eta <- (1/theta)*eta
       L[i] <- CNB(Cs[i,],Eta[1,]) + CNB(Cs[(N+i),], Eta[2,])
