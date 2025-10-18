@@ -1,54 +1,90 @@
-#' Generating Dataset consisting of Multivariate Count Outcome
-#'
-#' @param N The number of subject in the generated dataset.
-#' @param Q The number of categories in the multivariate count outcome.
-#' @param S The total number of multivariate count outcome per subject at each time point.
-#' @param theta The overdispersion parameter.
-#' @param s.u The variance of random effect to account for the correlation within time point.
-#' @param n.cov The number of covariates.
-#' @param Des Design matrix for fixed effects.
-#' @param method An argument of either \code{DMM} or \code{UNBM}
-#'
-#' @return A list of two elements where the first element is an \eqn{N\times Q} matrix of multivariate count outcome and the second element
-#' is \code{N}$\times$ \code{n.cov} categorical covariates.
-#' @examples See vignette
+###############################################################################
+##  DataGen() – simulasi data multivariate count + random-effect
+###############################################################################
+DataGen <- function(N,                         # banyak subjek
+                    output_levels,             # scalar (Q)
+                    input_levels,              # vector (p input)
+                    beta,                      # koefisien tanpa intercept
+                    S       = 2000,            # total count per sampel
+                    theta   = 0.2,             # over-dispersion
+                    s.u     = 0.8,             # sd random intercept
+                    method  = c("DMM", "UNBM"),
+                    T       = 2,               # time-point per subjek
+                    baseline_out = 1L,
+                    baseline_in  = rep(1L, length(input_levels))) {
 
+  method <- match.arg(method)
 
-DataGen <- function(N,Q,S,beta,theta,s.u,n.cov, lvl.cov, Des, method, T = 2){
-  require(HMP)
-  U <- rnorm(N,mean=0,sd=s.u)
-  X <- cbind(rbinom(2*N,size=1,prob = 0.5))+1
-  XB1 <- t(sapply(X[1:N],FixEf,Q = Q, lvl.cov = lvl.cov, b = c(0,beta), Des = Des))
-  XB2 <- t(sapply(X[(N+1):(2*N)],FixEf,Q = Q, lvl.cov = lvl.cov, b = c(0,beta), Des = Des))
+  ## ------------------------------------------------------------------------
+  ## 1)  Design matrix & koefisien
+  ## ------------------------------------------------------------------------
+  Des   <- DesMatIO(output_levels,
+                    input_levels,
+                    baseline_out,
+                    baseline_in)
 
+  Dmat  <- Des$Des.mat                     # intercept + dummy + interaksi
+  Q     <- output_levels
+  p_beta<- ncol(Dmat) - 1L                 # tanpa intercept
 
-  if(method == "DMM"){
-    XB.tilde1 <- (1/theta)*exp(cbind(XB1+rep(U,Q)))
-    C1 <- t(apply(XB.tilde1,1,Dirichlet.multinomial,Nrs = S))
+  if (length(beta) != p_beta)
+    stop("length(beta) must be ", p_beta,
+         " to match columns of design matrix (excluding intercept).")
 
-    XB.tilde2 <- (1/theta)*exp(cbind(XB2+rep(U,Q)))
-    C2 <- t(apply(XB.tilde2,1,Dirichlet.multinomial,Nrs = S))
+  b_vec <- c(0, beta)                      # prepend intercept = 0 (log-scale)
 
-    datalong <- data.frame(cbind(rep(1:N, 2),rbind(cbind(C1,X[1:N]),cbind(C2,X[(N+1):(2*N)]))))
-    colnames(datalong) <- c("ID",paste0("C",1:Q), paste0("X",1:n.cov))
+  ## Helper untuk fixed-effect per baris
+  row_fixef <- function(x_row)
+    FixEf(x_row, Q, as.list(input_levels), b_vec, Des)
+
+  ## ------------------------------------------------------------------------
+  ## 2)  Generate covariate levels & random effect
+  ## ------------------------------------------------------------------------
+  n_in   <- length(input_levels)
+  n_time <- T
+  Ntot   <- N * n_time
+
+  ## (a) matriks level kovariat (Ntot × n_in)
+  Xmat <- matrix(nrow = Ntot, ncol = n_in)
+  for (j in seq_len(n_in))
+    Xmat[, j] <- sample(seq_len(input_levels[j]), Ntot, TRUE)
+
+  ## (b) random intercept individu
+  Usubj <- rnorm(N, 0, s.u)
+  Urep  <- rep(Usubj, each = n_time)       # panjang N total
+
+  ## ------------------------------------------------------------------------
+  ## 3)  Linear predictor (log-scale)  =>  LP
+  ## ------------------------------------------------------------------------
+  LP <- t(apply(Xmat, 1, row_fixef))       # Ntot × Q
+  LP <- LP + matrix(Urep, Ntot, Q)         # tambahkan efek acak
+
+  ## ------------------------------------------------------------------------
+  ## 4)  Simulasi count
+  ## ------------------------------------------------------------------------
+  if (method == "DMM") {                   # Dirichlet-Multinomial
+    alpha <- (1/theta) * exp(LP)
+    counts<- t(apply(alpha, 1, HMP::Dirichlet.multinomial, Nrs = S))
+  } else {                                 # UNBM  (NegBin “tak terbatas”)
+    size   <- (1/theta) * exp(log(S/10) + LP)
+    probNB <- (1/theta) / (1 + 1/theta)
+    counts <- matrix(nrow = Ntot, ncol = Q)
+    for (i in seq_len(Ntot))
+      counts[i, ] <- rnbinom(Q, size = size[i, ], prob = probNB)
   }
 
-  if (method == "UNBM"){
-        XB.tilde1 <- (1/theta)*exp(log(S/10) + cbind(XB1+rep(U,Q)))
-        XB.tilde2 <- (1/theta)*exp(log(S/10) + cbind(XB2+rep(U,Q)))
+  ## ------------------------------------------------------------------------
+  ## 5)  Susun data long
+  ## ------------------------------------------------------------------------
+  out <- data.frame(
+    ID   = rep(seq_len(N), each = n_time),
+    time = rep(seq_len(n_time),  N),
+    counts,
+    Xmat
+  )
+  names(out)[3:(2+Q)]             <- paste0("C", seq_len(Q))
+  names(out)[(3+Q):ncol(out)]     <- paste0("X", seq_len(n_in))
 
-    C1 <- matrix(NA,nrow=N,ncol=Q)
-    C2 <- matrix(NA,nrow=N,ncol=Q)
-
-    for (i in 1:N)
-    {for (j in 1:Q)
-    {C1[i,j] <- rnbinom(1,size = XB.tilde1[i,j],prob = rep((1/theta)/(1+(1/theta)),Q))
-    C2[i,j] <- rnbinom(1,size = XB.tilde2[i,j],prob = rep((1/theta)/(1+(1/theta)),Q))
-    }
-    }
-    datalong <- data.frame(cbind(rep(1:N, 2),rbind(cbind(C1,X[1:N]),cbind(C2,X[(N+1):(2*N)]))))
-    colnames(datalong) <- c("ID",paste0("C",1:Q), paste0("X",1:n.cov))
-  }
-
-  return(datalong)
+  return(out)
 }
+
