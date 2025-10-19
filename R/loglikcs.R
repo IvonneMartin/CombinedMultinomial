@@ -17,6 +17,8 @@ loglikcs <- function(pars, dataset, Des, model){
   cols_with_X <- grep("^X\\d+$", names(dataset), value = TRUE)
   df_X <- dataset[, cols_with_X]
   datset <- list("Cs" = df_C, "Xs" = df_X)
+
+  #Define the parameters needed
   theta <- exp(pars[length(pars)])
   b <- c(0,pars[1:(length(pars) - 1)])
 

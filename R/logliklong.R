@@ -15,12 +15,21 @@ logliklong <- function(pars, dataset, Des, model){
 
   require(ecoreg)
 
+  # Define dataset with Cs and Xs
+  cols_with_c <- grep("^C\\d+$", names(dataset), value = TRUE)
+  df_C <- dataset[ , cols_with_c]
+
+  cols_with_X <- grep("^X\\d+$", names(dataset), value = TRUE)
+  df_X <- dataset[, cols_with_X]
+  datset <- list("Cs" = df_C, "Xs" = df_X)
+
+
   theta <- exp(pars[length(pars)])
   u <- exp(pars[(length(pars) - 1)])
   b <- c(0,pars[1:(length(pars) - 2)])
 
-  Cs <- dataset[[1]]
-  Xs <- dataset[[2]]
+  Cs <- datset[[1]]
+  Xs <- datset[[2]]
 
 
   if(is.null(dim(Xs))){Xs <- as.matrix(Xs,ncol = 1)}
@@ -54,15 +63,15 @@ logliklong <- function(pars, dataset, Des, model){
     D <- as.matrix(Des[[2]])
   }
 
-  Des <- list("Y.form" = Y.form, "D" = D)
+  Des.m <- list("Y.form" = Y.form, "D" = D)
 
   L <- NULL
   G <- matrix(NA,nrow = 2,ncol = Q)
 
   if(model == "DMM"){
     for (i in 1:N)
-    { G[1,] <- FixEf(Xs.c[i,], Q = Q, b = b, lvl.cov = lvl.cov, Des = Des)
-      G[2,] <- FixEf(Xs.c[(N+i),], Q = Q, b = b, lvl.cov = lvl.cov, Des = Des)
+    { G[1,] <- FixEf(Xs.c[i,], Q = Q, b = b, lvl.cov = lvl.cov, Des = Des.m)
+      G[2,] <- FixEf(Xs.c[(N+i),], Q = Q, b = b, lvl.cov = lvl.cov, Des = Des.m)
     FF1 <- function(z1) FF(z1,u,G , theta, Cs.vec = rbind(Cs[i,],Cs[(N+i),]))
     opt <- try(optim(0.1,FF1,method="BFGS",control=list(fnscale=-1,maxit=5000),hessian=TRUE))
     L[i] <- log(integrate.gh(function(z1) exp(FF1(z1)),mu = opt$par,scale=1/sqrt(-opt$hessian),points=5))
