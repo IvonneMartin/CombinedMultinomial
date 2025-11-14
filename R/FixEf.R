@@ -1,3 +1,12 @@
+######
+
+## ---------------------------------------------------------------------------
+## Function to calculate the mean specification from a single observation.
+## Accepting the values of covariate, number of covariate and the number of
+## covariate level. The initial values of beta is also needed.
+## The function calls the design matrix and choose the location of the appropriate
+## corresponding response.
+
 FixEf <- function(x.vec, Q, lvl.cov, b, Des) {
   Y.form <- Des[[1]]           # tabel kombinasi level (kolom 1 = level output)
   D      <- Des[[2]]           # design matrix
